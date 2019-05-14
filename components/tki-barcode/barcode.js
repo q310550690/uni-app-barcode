@@ -1,4 +1,4 @@
-const barcodes = require('./bin/barcodes/index.js')['default'];
+const barcodes = require('./barcodes/index.js')['default'];
 let barcode = {};
 (function () {
     // 初始化
@@ -133,15 +133,8 @@ let barcode = {};
             })
         },
         toImgs(options, encoding) {
-            // let yFrom;
-            // if (options.textPosition == "top") {
-            //     yFrom = options.marginTop + options.fontSize + options.textMargin;
-            // } else {
-            //     yFrom = options.marginTop;
-            // }
             setTimeout(() => {
                 uni.canvasToTempFilePath({
-                    // y: yFrom,
                     width: encoding.width,
                     height: encoding.height,
                     destWidth: encoding.width,
@@ -149,7 +142,6 @@ let barcode = {};
                     canvasId: 'tki-barcode-canvas',
                     fileType: 'png',
                     success: function (res) {
-                        console.log(res)
                         cbResult(res.tempFilePath)
                     },
                     fail: function (res) {
@@ -192,14 +184,12 @@ let barcode = {};
             width += encodingArr[i].width
             if (encodingArr[i].options) {
                 if (encodingArr[i].options.height != undefined) {
-                    encodingArr[i].height = encodingArr[i].options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '') > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
+                    encodingArr[i].height = encodingArr[i].options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
                 } else {
-                    encodingArr[i].height = options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '') > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
-                    height = encodingArr[i].height
+                    encodingArr[i].height = height =options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
                 }
             } else {
-                encodingArr[i].height = options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '') > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
-                height = encodingArr[i].height
+                encodingArr[i].height = height = options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
             }
         });
         return { encodings: encodingArr, width, height };

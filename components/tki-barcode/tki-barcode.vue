@@ -1,9 +1,6 @@
 <template xlang="wxml" minapp="mpvue">
 	<view class="tki-barcode">
-		<!-- <canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" :style="{width:cpSize+'px',height:cpSize+'px'}" />
-		<image v-show="show" :src="result" :style="{width:cpSize+'px',height:cpSize+'px'}" /> -->
-		<canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" width="6000" height="1000"/>
-		<!-- <canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" /> -->
+		<canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" width="6000" height="1000" />
 		<image v-show="show" :src="result" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" />
 	</view>
 </template>
@@ -18,6 +15,10 @@ export default {
 			type: Boolean,
 			default: true
 		},
+		unit: {
+			type: String,
+			default: 'upx'
+		},
 		val: {
 			type: String,
 			default: '1234567890128'
@@ -27,7 +28,7 @@ export default {
 			default: function () {
 				return {
 					format: "EAN13",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
-					// format: "code128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
+					format: "code128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
 					// format: "upc",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
 					width: 4,//设置条之间的宽度
 					height: 200,//高度
@@ -69,14 +70,19 @@ export default {
 	methods: {
 		_makeCode() {
 			let that = this
-			if(that.opations.width){
-				that.opations.width = uni.upx2px(that.opations.width)
+			if (that.unit == "upx") {
+				if (that.opations.width) {
+					that.opations.width = uni.upx2px(that.opations.width)
+				}
+				if (that.opations.height) {
+					that.opations.height = uni.upx2px(that.opations.height)
+				}
+				if (that.opations.fontSize) {
+					that.opations.fontSize = uni.upx2px(that.opations.fontSize)
+				}
 			}
-			if(that.opations.height){
-				that.opations.height = uni.upx2px(that.opations.height)
-			}
-			if(that.opations.fontSize){
-				that.opations.fontSize = uni.upx2px(that.opations.fontSize)
+			if (that._empty(that.opations.text)) {
+				that.opations.text = that.val
 			}
 			new barCode(that, that.opations,
 				function (res) { // 生成条形码的回调
