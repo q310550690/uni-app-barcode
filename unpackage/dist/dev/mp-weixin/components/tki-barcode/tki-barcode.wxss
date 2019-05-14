@@ -1,0 +1,11 @@
+
+.tki-barcode {
+	position: relative;
+}
+.tki-barcode-canvas {
+	position: fixed;
+	/* top: -99999upx;
+	left: -99999upx;
+	z-index: -99999; */
+}
+
