@@ -8,7 +8,7 @@
 ## 说明
 此条形码组件的条形码生成部分移植改造自[jsBarcode.js](https://github.com/lindell/JsBarcode)，精简了代码，移除无效属性，增加了点新属性，使其能够在uni-app中运行。    
 
-支持生成的条形码类型↓
+### 支持生成的条形码类型↓
 |CODE128|EAN|CODE39|ITF|MSI|Pharmacode|Codabar|
 |:-|:-:|:-:|:-:|:-:|:-:|-:|
 |CODE128 |EAN-13|CODE39 |ITF|MSI|Pharmacode|Codabar|
