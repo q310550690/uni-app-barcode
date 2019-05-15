@@ -1,1 +1,0 @@
-<view class="tki-barcode" bind:__l="__l"><canvas class="tki-barcode-canvas" style="{{'width:'+(canvasWidth+'px')+';'+('height:'+(canvasHeight+'px')+';')}}" canvas-id="{{cid}}"></canvas><image hidden="{{!(show)}}" style="{{'width:'+(canvasWidth+'px')+';'+('height:'+(canvasHeight+'px')+';')}}" src="{{result}}"></image></view>

@@ -1,1 +1,0 @@
-<view class="content" bind:__l="__l"><tki-barcode cid="q" val="12"></tki-barcode><tki-barcode cid="b" val="13"></tki-barcode></view>

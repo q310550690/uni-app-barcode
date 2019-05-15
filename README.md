@@ -61,7 +61,6 @@ export default {
 |属性名|类型|默认值|可选值|说明|
 |:-|:-:|:--:|:--:|-:|
 |cid|String|tki-barcode-canvas| |canvasId，页面存在多个条形码组件时需设置不同的ID|
-|size|Number|200| |生成的条形码大小|
 |unit|String|upx|px|单位|
 |show|Boolean|true| |默认使用组件中的image标签显示条形码|
 |format|String|code128| code128\code39\ean13\ean8\upc\itf14|条形码类型|
@@ -74,7 +73,7 @@ export default {
 |:-|:-:|:--:|:--:|-:|
 |format|String|code128| |要使用的条形码类型。</br>提示：微信APP扫码支持的条码类型有 code128\code39\ean13\ean8\upc\itf14|
 |width|Number|4| |设置条之间的宽度|
-|height|Number|200| |设置条的高度|
+|height|Number|120| |设置条的高度|
 |displayValue|Boolean|true| |是否在条形码下方显示文字|
 |text|String|1234567890128| |条码内容（会覆盖val属性）|
 |textAlign|String|center|left\right |设置文本的水平对齐方式|

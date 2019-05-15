@@ -1,6 +1,0 @@
-{
-  "navigationBarTitleText": "uni-app",
-  "usingComponents": {
-    "tki-barcode": "/components/tki-barcode/tki-barcode"
-  }
-}
