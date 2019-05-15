@@ -111,7 +111,7 @@ let barcode = {};
                 ctx.translate(options.marginLeft, 0);
             },
             draw(options, encoding) {
-                ctx.draw(true, () => {
+                ctx.draw(false, () => {
                     this.toImgs(options, encoding)
                 })
             },
