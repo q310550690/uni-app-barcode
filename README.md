@@ -10,7 +10,7 @@
 
 支持生成的条形码类型↓
 |CODE128|EAN|CODE39|ITF|MSI|Pharmacode|Codabar|
-|:-|:-:|:--:|:--:|:--:|:--:|-:|
+|:-|:-:|:-:|:-:|:-:|:-:|-:|
 |CODE128 |EAN-13|CODE39 |ITF|MSI|Pharmacode|Codabar|
 |CODE128 A/B/C |EAN-8| |ITF - 14|MSI10| | |
 | |EAN-5| | |MSI11| | |
