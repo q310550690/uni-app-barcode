@@ -38,7 +38,7 @@ export default {
 				return {
 					// format: "CODE128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
 					width: 4,//设置条之间的宽度
-					height: 100,//高度
+					height: 120,//高度
 					displayValue: true,//是否在条形码下方显示文字
 					// text: "1234567890",//覆盖显示的文本
 					textAlign: "center",//设置文本的水平对齐方式
