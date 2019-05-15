@@ -45,8 +45,10 @@ export default {
 <view>
     <tki-barcode
     ref="barcode"
+    :show="show"
+    :format="format"
+    :cid="cid"
     :val="val"
-    :size="size"
     :unit="unit"
     :opations="opations"
     :onval="onval"
