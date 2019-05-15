@@ -1,6 +1,7 @@
 <template xlang="wxml" minapp="mpvue">
 	<view class="tki-barcode">
-		<canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" width="6000" height="1000" />
+		<!-- <canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" :width="canvasWidth" :height="canvasHeight" /> -->
+		<canvas class="tki-barcode-canvas" :canvas-id="cid" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" />
 		<image v-show="show" :src="result" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" />
 	</view>
 </template>
@@ -15,6 +16,10 @@ export default {
 			type: Boolean,
 			default: true
 		},
+		cid: {
+			type: String,
+			default: 'tki-barcode-canvas'
+		},
 		unit: {
 			type: String,
 			default: 'upx'
@@ -23,29 +28,31 @@ export default {
 			type: String,
 			default: '1234567890128'
 		},
+		format: {
+			type: String,
+			default: 'CODE128'
+		},
 		opations: {
 			type: Object,
 			default: function () {
 				return {
-					format: "EAN13",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
-					format: "code128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
-					// format: "upc",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
+					// format: "CODE128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
 					width: 4,//设置条之间的宽度
 					height: 200,//高度
 					displayValue: true,//是否在条形码下方显示文字
-					text: "1234567890128",//显示的文本
+					// text: "1234567890",//覆盖显示的文本
 					textAlign: "center",//设置文本的水平对齐方式
 					textPosition: "bottom",//设置文本的垂直位置
-					textMargin: 10,//设置条形码和文本之间的间距
-					fontSize: 20,//设置文本的大小
-					fontColor: "#0cc",//设置文本的大小
-					lineColor: "#2196f3",//设置条码的颜色。
-					background: "#eee",//设置条形码的背景
+					textMargin: 0,//设置条形码和文本之间的间距
+					fontSize: 24,//设置文本的大小
+					fontColor: "#000000",//设置文本的颜色
+					lineColor: "#000000",//设置条形码的颜色
+					background: "#FFFFFF",//设置条形码的背景色
 					margin: 0,//设置条形码周围的空白边距
-					marginTop: 0,//设置条形码周围的顶部边距
-					marginBottom: 0,//设置条形码周围的底部边距
-					marginLeft: 0,//设置条形码周围的左边距
-					marginRight: 0,//设置条形码周围的右边距
+					marginTop: undefined,//设置条形码周围的上边距
+					marginBottom: undefined,//设置条形码周围的下边距
+					marginLeft: undefined,//设置条形码周围的左边距
+					marginRight: undefined,//设置条形码周围的右边距
 				}
 			}
 		},
@@ -84,8 +91,11 @@ export default {
 			if (that._empty(that.opations.text)) {
 				that.opations.text = that.val
 			}
-			new barCode(that, that.opations,
-				function (res) { // 生成条形码的回调
+			if (that._empty(that.opations.format)) {
+				that.opations.format = that.format
+			}
+			new barCode(that,that.cid, that.opations,
+				function (res) { // 生成条形码款高回调
 					that.canvasWidth = res.width
 					that.canvasHeight = res.height
 				},
@@ -174,7 +184,7 @@ export default {
 	position: relative;
 }
 .tki-barcode-canvas {
-	position: fixed;
+	position: fixed; 
 	top: -99999upx;
 	left: -99999upx;
 	z-index: -99999;

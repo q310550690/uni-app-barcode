@@ -50,7 +50,7 @@ var camelize = cached(function (str) {
   return str.replace(camelizeRE, function (_, c) {return c ? c.toUpperCase() : '';});
 });
 
-var SYNC_API_RE = /requireNativePlugin|upx2px|hideKeyboard|canIUse|^create|Sync$|Manager$/;
+var SYNC_API_RE = /subNVue|requireNativePlugin|upx2px|hideKeyboard|canIUse|^create|Sync$|Manager$/;
 
 var CONTEXT_API_RE = /^create|Manager$/;
 
@@ -154,7 +154,45 @@ function upx2px(number, newDeviceWidth) {
   return number < 0 ? -result : result;
 }
 
-var protocols = {};
+var previewImage = {
+  args: function args(fromArgs) {
+    var currentIndex = parseInt(fromArgs.current);
+    if (isNaN(currentIndex)) {
+      return;
+    }
+    var urls = fromArgs.urls;
+    if (!Array.isArray(urls)) {
+      return;
+    }
+    var len = urls.length;
+    if (!len) {
+      return;
+    }
+    if (currentIndex < 0) {
+      currentIndex = 0;
+    } else if (currentIndex >= len) {
+      currentIndex = len - 1;
+    }
+    if (currentIndex > 0) {
+      fromArgs.current = urls[currentIndex];
+      fromArgs.urls = urls.filter(
+      function (item, index) {return index < currentIndex ? item !== urls[currentIndex] : true;});
+
+    } else {
+      fromArgs.current = urls[0];
+    }
+    return {
+      indicator: false,
+      loop: false };
+
+  } };
+
+
+var protocols = {
+  previewImage: previewImage };
+
+var todos = [];
+var canIUses = [];
 
 var CALLBACKS = ['success', 'fail', 'cancel', 'complete'];
 
@@ -319,8 +357,7 @@ function initTriggerEvent(mpInstance) {
   };
 }
 
-Page = function Page() {var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-  var name = 'onLoad';
+function initHook(name, options) {
   var oldHook = options[name];
   if (!oldHook) {
     options[name] = function () {
@@ -332,22 +369,53 @@ Page = function Page() {var options = arguments.length > 0 && arguments[0] !== u
       return oldHook.apply(this, args);
     };
   }
+}
+
+Page = function Page() {var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+  initHook('onLoad', options);
   return MPPage(options);
 };
 
-var behavior = Behavior({
-  created: function created() {
-    initTriggerEvent(this);
-  } });
-
-
 Component = function Component() {var options = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
-  (options.behaviors || (options.behaviors = [])).unshift(behavior);
+  initHook('created', options);
   return MPComponent(options);
 };
 
 var mocks = ['__route__', '__wxExparserNodeId__', '__wxWebviewId__'];
 
+function initPage(pageOptions) {
+  return initComponent(pageOptions);
+}
+
+function initComponent(componentOptions) {
+  return Component(componentOptions);
+}
+
+function initBehavior(options) {
+  return Behavior(options);
+}
+function initRefs(vm) {
+  var mpInstance = vm.$scope;
+  Object.defineProperty(vm, '$refs', {
+    get: function get() {
+      var $refs = {};
+      var components = mpInstance.selectAllComponents('.vue-ref');
+      components.forEach(function (component) {
+        var ref = component.dataset.ref;
+        $refs[ref] = component.$vm || component;
+      });
+      var forComponents = mpInstance.selectAllComponents('.vue-ref-in-for');
+      forComponents.forEach(function (component) {
+        var ref = component.dataset.ref;
+        if (!$refs[ref]) {
+          $refs[ref] = [];
+        }
+        $refs[ref].push(component.$vm || component);
+      });
+      return $refs;
+    } });
+
+}
 function triggerLink(mpInstance, vueOptions) {
   mpInstance.triggerEvent('__l', mpInstance.$vm || vueOptions, {
     bubbles: true,
@@ -370,9 +438,9 @@ function handleLink(event) {
   }
 }
 
-function initMocks(vm, mocks) {
+function initMocks(vm, mocks$$1) {
   var mpInstance = vm.$mp[vm.mpType];
-  mocks.forEach(function (mock) {
+  mocks$$1.forEach(function (mock) {
     if (hasOwn(mpInstance, mock)) {
       vm[mock] = mpInstance[mock];
     }
@@ -457,7 +525,7 @@ function getBehaviors(vueOptions) {
   }
   if (isPlainObject(vueExtends) && vueExtends.props) {
     behaviors.push(
-    Behavior({
+    initBehavior({
       properties: getProperties(vueExtends.props, true) }));
 
 
@@ -466,7 +534,7 @@ function getBehaviors(vueOptions) {
     vueMixins.forEach(function (vueMixin) {
       if (isPlainObject(vueMixin) && vueMixin.props) {
         behaviors.push(
-        Behavior({
+        initBehavior({
           properties: getProperties(vueMixin.props, true) }));
 
 
@@ -734,29 +802,6 @@ function handleEvent(event) {var _this = this;
   });
 }
 
-function initRefs(vm) {
-  var mpInstance = vm.$mp[vm.mpType];
-  Object.defineProperty(vm, '$refs', {
-    get: function get() {
-      var $refs = {};
-      var components = mpInstance.selectAllComponents('.vue-ref');
-      components.forEach(function (component) {
-        var ref = component.dataset.ref;
-        $refs[ref] = component.$vm || component;
-      });
-      var forComponents = mpInstance.selectAllComponents('.vue-ref-in-for');
-      forComponents.forEach(function (component) {
-        var ref = component.dataset.ref;
-        if (!$refs[ref]) {
-          $refs[ref] = [];
-        }
-        $refs[ref].push(component.$vm || component);
-      });
-      return $refs;
-    } });
-
-}
-
 var hooks = [
 'onHide',
 'onError',
@@ -782,24 +827,27 @@ function initVm(vm) {
 }
 
 function createApp(vm) {
-  // 外部初始化时 Vue 还未初始化，放到 createApp 内部初始化 mixin
+
   _vue.default.mixin({
     beforeCreate: function beforeCreate() {
       if (!this.$options.mpType) {
         return;
       }
+
       this.mpType = this.$options.mpType;
+
       this.$mp = _defineProperty({
         data: {} },
       this.mpType, this.$options.mpInstance);
+
+
+      this.$scope = this.$options.mpInstance;
 
       delete this.$options.mpType;
       delete this.$options.mpInstance;
 
       if (this.mpType !== 'app') {
-        {// 头条的 selectComponent 竟然是异步的
-          initRefs(this);
-        }
+        initRefs(this);
         initMocks(this, mocks);
       }
     },
@@ -910,7 +958,7 @@ function createPage(vueOptions) {
 
   initHooks(pageOptions.methods, hooks$1);
 
-  return Component(pageOptions);
+  return initPage(pageOptions, vueOptions);
 }
 
 function initVm$2(VueComponent) {
@@ -918,16 +966,18 @@ function initVm$2(VueComponent) {
     return;
   }
 
+  var properties = this.properties;
+
   var options = {
     mpType: 'component',
     mpInstance: this,
-    propsData: this.properties };
+    propsData: properties };
 
   // 初始化 vue 实例
   this.$vm = new VueComponent(options);
 
   // 处理$slots,$scopedSlots（暂不支持动态变化$slots）
-  var vueSlots = this.properties.vueSlots;
+  var vueSlots = properties.vueSlots;
   if (Array.isArray(vueSlots) && vueSlots.length) {
     var $slots = Object.create(null);
     vueSlots.forEach(function (slotName) {
@@ -943,11 +993,17 @@ function initVm$2(VueComponent) {
 function createComponent(vueOptions) {
   vueOptions = vueOptions.default || vueOptions;
 
+  var VueComponent;
+  if (isFn(vueOptions)) {
+    VueComponent = vueOptions; // TODO form-field props.name,props.value
+    vueOptions = VueComponent.extendOptions;
+  } else {
+    VueComponent = _vue.default.extend(vueOptions);
+  }
+
   var behaviors = getBehaviors(vueOptions);
 
   var properties = getProperties(vueOptions.props, false, vueOptions.__file);
-
-  var VueComponent = _vue.default.extend(vueOptions);
 
   var componentOptions = {
     options: {
@@ -993,8 +1049,19 @@ function createComponent(vueOptions) {
 
 
 
-  return Component(componentOptions);
+  return initComponent(componentOptions, vueOptions);
 }
+
+todos.forEach(function (todoApi) {
+  protocols[todoApi] = false;
+});
+
+canIUses.forEach(function (canIUseApi) {
+  var apiName = protocols[canIUseApi] && protocols[canIUseApi].name ? protocols[canIUseApi].name : canIUseApi;
+  if (!wx.canIUse(apiName)) {
+    protocols[canIUseApi] = false;
+  }
+});
 
 var uni = {};
 
@@ -1685,8 +1752,8 @@ if (true) {
 
   formatComponentName = function (vm, includeFile) {
     {
-      if(vm.$mp && vm.$mp[vm.mpType]){
-        return vm.$mp[vm.mpType].is
+      if(vm.$scope && vm.$scope.is){
+        return vm.$scope.is
       }
     }
     if (vm.$root === vm) {
@@ -6493,7 +6560,7 @@ function type(obj) {
 function flushCallbacks$1(vm) {
     if (vm.__next_tick_callbacks && vm.__next_tick_callbacks.length) {
         if (Object({"VUE_APP_PLATFORM":"mp-weixin","NODE_ENV":"development","BASE_URL":"/"}).VUE_APP_DEBUG) {
-            var mpInstance = vm.$mp[vm.mpType];
+            var mpInstance = vm.$scope;
             console.log('[' + (+new Date) + '][' + (mpInstance.is || mpInstance.route) + '][' + vm._uid +
                 ']:flushCallbacks[' + vm.__next_tick_callbacks.length + ']');
         }
@@ -6514,14 +6581,14 @@ function nextTick$1(vm, cb) {
     //2.nextTick 之前存在 render watcher
     if (!vm.__next_tick_pending && !hasRenderWatcher(vm)) {
         if(Object({"VUE_APP_PLATFORM":"mp-weixin","NODE_ENV":"development","BASE_URL":"/"}).VUE_APP_DEBUG){
-            var mpInstance = vm.$mp[vm.mpType];
+            var mpInstance = vm.$scope;
             console.log('[' + (+new Date) + '][' + (mpInstance.is || mpInstance.route) + '][' + vm._uid +
                 ']:nextVueTick');
         }
         return nextTick(cb, vm)
     }else{
         if(Object({"VUE_APP_PLATFORM":"mp-weixin","NODE_ENV":"development","BASE_URL":"/"}).VUE_APP_DEBUG){
-            var mpInstance$1 = vm.$mp[vm.mpType];
+            var mpInstance$1 = vm.$scope;
             console.log('[' + (+new Date) + '][' + (mpInstance$1.is || mpInstance$1.route) + '][' + vm._uid +
                 ']:nextMPTick');
         }
@@ -6580,7 +6647,7 @@ var patch = function(oldVnode, vnode) {
         return
     }
     if (this.mpType === 'page' || this.mpType === 'component') {
-        var mpInstance = this.$mp[this.mpType];
+        var mpInstance = this.$scope;
         var data = cloneWithData(this);
         data.__webviewId__ = mpInstance.data.__webviewId__;
         var mpData = Object.create(null);
@@ -6762,8 +6829,8 @@ function internalMixin(Vue) {
     var oldEmit = Vue.prototype.$emit;
 
     Vue.prototype.$emit = function(event) {
-        if (this.$mp && event) {
-            this.$mp[this.mpType]['triggerEvent'](event, {
+        if (this.$scope && event) {
+            this.$scope['triggerEvent'](event, {
                 __args__: toArray(arguments, 1)
             });
         }
@@ -6776,8 +6843,8 @@ function internalMixin(Vue) {
 
     MP_METHODS.forEach(function (method) {
         Vue.prototype[method] = function(args) {
-            if (this.$mp) {
-                return this.$mp[this.mpType][method](args)
+            if (this.$scope) {
+                return this.$scope[method](args)
             }
         };
     });
@@ -6867,6 +6934,7 @@ var LIFECYCLE_HOOKS$1 = [
     'onReachBottom',
     'onTabItemTap',
     'onShareAppMessage',
+    'onResize',
     'onPageScroll',
     'onNavigationBarButtonTap',
     'onBackPress',
@@ -6874,7 +6942,7 @@ var LIFECYCLE_HOOKS$1 = [
     'onNavigationBarSearchInputConfirmed',
     'onNavigationBarSearchInputClicked',
     //Component
-    'onReady', // 兼容旧版本，应该移除该事件
+    // 'onReady', // 兼容旧版本，应该移除该事件
     'onPageShow',
     'onPageHide',
     'onPageResize'
@@ -7078,54 +7146,45 @@ module.exports = g;
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
-/* WEBPACK VAR INJECTION */(function(uni) {Object.defineProperty(exports, "__esModule", { value: true });exports.default = void 0;var barcodes = __webpack_require__(/*! ./bin/barcodes/index.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\index.js")['default'];
+/* WEBPACK VAR INJECTION */(function(uni) {Object.defineProperty(exports, "__esModule", { value: true });exports.default = void 0;function _toConsumableArray(arr) {return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _nonIterableSpread();}function _nonIterableSpread() {throw new TypeError("Invalid attempt to spread non-iterable instance");}function _iterableToArray(iter) {if (Symbol.iterator in Object(iter) || Object.prototype.toString.call(iter) === "[object Arguments]") return Array.from(iter);}function _arrayWithoutHoles(arr) {if (Array.isArray(arr)) {for (var i = 0, arr2 = new Array(arr.length); i < arr.length; i++) {arr2[i] = arr[i];}return arr2;}}var barcodes = __webpack_require__(/*! ./barcodes/index.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\index.js")['default'];
 var barcode = {};
 (function () {
   // 初始化
-  var newOptions, encodings, globaContext, ctx;
-  barcode = function barcode(cont, options) {
-    var ops = {
-      format: "CODE128", //选择要使用的条形码类型
-      width: 2, //设置条之间的宽度
-      height: 100, //高度
-      displayValue: true, //是否在条形码下方显示文字
-      text: "123456", //覆盖显示的文本
-      textAlign: "center", //设置文本的水平对齐方式
-      textPosition: "bottom", //设置文本的垂直位置
-      textMargin: 0, //设置条形码和文本之间的间距
-      fontSize: 20, //设置文本的大小
-      background: "#FFFFFF", //设置条形码的背景
-      lineColor: "#000000", //设置条和文本的颜色。
-      margin: 0, //设置条形码周围的空白边距
-      marginTop: undefined, //设置条形码周围的上边距
-      marginBottom: undefined, //设置条形码周围的下边距
-      marginLeft: undefined, //设置条形码周围的左边距
-      marginRight: undefined //设置条形码周围的右边距
-    };
+  var newOptions, encodings, globaContext, ctx, globaCtxid, cbCanvasSize, cbResult;
+  barcode = function barcode(cont, ctxid, options, ctxsize, result) {
+    globaCtxid = ctxid;
+    cbCanvasSize = ctxsize;
+    cbResult = result;
+    var ops = {};
     newOptions = Object.assign(ops, options);
     // 修成margin
     fixMargin(newOptions);
-    console.log(newOptions);
     // 处理options 数据
     if (newOptions.text == '' || cont == '') {
       return false;
     }
     // 获取ctx
     globaContext = cont;
-    ctx = uni.createCanvasContext('tki-barcode-canvas', globaContext);
+    ctx = uni.createCanvasContext(globaCtxid, globaContext);
     // 获取编码数据
-    encodings = new barcodes[newOptions.format](newOptions.text, newOptions).encode();
-    mixinsEncodings(encodings, newOptions);
+    encodings = new barcodes[newOptions.format.toUpperCase()](newOptions.text, newOptions).encode();
+    var fixencodings = fixEncodings(encodings, newOptions);
     // 返回canvas实际大小
-    newOptions.cbCanvasSize({ width: encodings.width, height: encodings.height });
+    cbCanvasSize({ width: fixencodings.width, height: fixencodings.height });
     // 绘制canvas
-    drawCanvas.render(newOptions, encodings);
+    setTimeout(function () {
+      drawCanvas.render(newOptions, fixencodings);
+    }, 10);
   };
   // 绘制canvas
   var drawCanvas = {
-    render: function render(options, encoding) {
-      this.barcode(options, encoding);
-      this.text(options, encoding);
+    render: function render(options, encoding) {var _this = this;
+      this.prepare(options, encoding);
+      encoding.encodings.forEach(function (v, i) {
+        _this.barcode(options, v);
+        _this.text(options, v);
+        _this.move(v);
+      });
       this.draw(options, encoding);
     },
     barcode: function barcode(options, encoding) {
@@ -7136,35 +7195,47 @@ var barcode = {};
       } else {
         yFrom = options.marginTop;
       }
-      // 绘制背景
-      if (options.background) {
-        ctx.fillStyle = options.background;
-        ctx.fillRect(0, 0, encoding.width, encoding.height);
-      }
       // 绘制条码
       ctx.fillStyle = options.lineColor;
       for (var b = 0; b < binary.length; b++) {
-        var x = b * options.width + encoding.barcodePadding + options.marginLeft;
+        var x = b * options.width + encoding.barcodePadding;
+        var height = options.height;
+        if (encoding.options) {
+          if (encoding.options.height != undefined) {
+            height = encoding.options.height;
+          }
+        }
         if (binary[b] === "1") {
-          ctx.fillRect(x, yFrom, options.width, options.height);
+          ctx.fillRect(x, yFrom, options.width, height);
         } else if (binary[b]) {
-          ctx.fillRect(x, yFrom, options.width, options.height * binary[b]);
+          ctx.fillRect(x, yFrom, options.width, height * binary[b]);
         }
       }
     },
     text: function text(options, encoding) {
       if (options.displayValue) {
-        var x, y;
+        var x, y, align, size;
         if (options.textPosition == "top") {
-          y = options.marginTop + options.fontSize - options.textMargin;
+          y = options.marginTop + options.fontSize;
         } else {
           y = options.height + options.textMargin + options.marginTop + options.fontSize;
         }
-        ctx.setFontSize(options.fontSize);
-        if (options.textAlign == "left" || encoding.barcodePadding > 0) {
+        if (encoding.options) {
+          if (encoding.options.textAlign != undefined) {
+            align = encoding.options.textAlign;
+          }
+          if (encoding.options.fontSize != undefined) {
+            size = encoding.options.fontSize;
+          }
+        } else {
+          align = options.textAlign;
+          size = options.fontSize;
+        }
+        ctx.setFontSize(size);
+        if (align == "left" || encoding.barcodePadding > 0) {
           x = 0;
           ctx.setTextAlign('left');
-        } else if (options.textAlign == "right") {
+        } else if (align == "right") {
           x = encoding.width - 1;
           ctx.setTextAlign('right');
         } else
@@ -7172,39 +7243,43 @@ var barcode = {};
           x = encoding.width / 2;
           ctx.setTextAlign('center');
         }
-        ctx.fillText(encoding.text, x, y);
+        ctx.fillStyle = options.fontColor;
+        if (encoding.text != undefined) {
+          ctx.fillText(encoding.text, x, y);
+        }
       }
     },
-    draw: function draw(options, encoding) {var _this = this;
+    move: function move(encoding) {
+      ctx.translate(encoding.width, 0);
+    },
+    prepare: function prepare(options, encoding) {
+      // 绘制背景
+      if (options.background) {
+        ctx.fillStyle = options.background;
+        ctx.fillRect(0, 0, encoding.width, encoding.height);
+      }
+      ctx.translate(options.marginLeft, 0);
+    },
+    draw: function draw(options, encoding) {var _this2 = this;
       ctx.draw(true, function () {
-        _this.toImgs(options, encoding);
+        _this2.toImgs(options, encoding);
       });
     },
     toImgs: function toImgs(options, encoding) {
-      var yFrom;
-      if (options.textPosition == "top") {
-        yFrom = options.marginTop + options.fontSize + options.textMargin;
-      } else {
-        yFrom = options.marginTop;
-      }
+      console.log(globaCtxid);
       setTimeout(function () {
         uni.canvasToTempFilePath({
-          y: yFrom,
           width: encoding.width,
           height: encoding.height,
-          destWidth: encoding.width,
-          destHeight: encoding.height,
-          canvasId: 'tki-barcode-canvas',
-          fileType: 'png',
+          // destWidth: encoding.width,
+          // destHeight: encoding.height,
+          canvasId: globaCtxid,
+          fileType: 'jpg',
           success: function success(res) {
-            if (options.cbResult) {
-              options.cbResult(res.tempFilePath);
-            }
+            cbResult(res.tempFilePath);
           },
           fail: function fail(res) {
-            if (options.cbResult) {
-              options.cbResult(res);
-            }
+            cbResult(res);
           },
           complete: function complete() {
             uni.hideLoading();
@@ -7214,38 +7289,51 @@ var barcode = {};
     } };
 
   // 混入canvas数据
-  function mixinsEncodings(encoding, options) {
-    // 获取文本宽度
-    ctx.font = options.fontOptions + " " + options.fontSize + "px " + options.font;
-    var textWidth = ctx.measureText(options.text).width;
-    // 获取条形码宽度
-    var barcodeWidth = encoding.data.length * options.width;
-    // 获取内边距
-    var barcodePadding = 0;
-    if (options.displayValue && barcodeWidth < textWidth) {
-      if (options.textAlign == "center") {
-        barcodePadding = Math.floor((textWidth - barcodeWidth) / 2);
-      } else if (options.textAlign == "left") {
-        barcodePadding = 0;
-      } else if (options.textAlign == "right") {
-        barcodePadding = Math.floor(textWidth - barcodeWidth);
-      }
+  function fixEncodings(encoding, options) {
+    var encodingArr = [],width = options.marginLeft + options.marginRight,height;
+    if (!Array.isArray(encoding)) {
+      encodingArr[0] = JSON.parse(JSON.stringify(encoding));
+    } else {
+      encodingArr = _toConsumableArray(encoding);
     }
-    // 混入encoding
-    encoding.barcodePadding = barcodePadding;
-    encoding.width = Math.ceil(Math.max(textWidth, barcodeWidth)) + options.marginLeft + options.marginRight;
-    encoding.height = options.height + (options.displayValue && encoding.text.length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
-
+    encodingArr.forEach(function (v, i) {
+      // 获取文本宽度
+      var textWidth = ctx.measureText(encodingArr[i].text ? encodingArr[i].text : '').width;
+      // 获取条形码宽度
+      var barcodeWidth = encodingArr[i].data.length * options.width;
+      // 获取内边距
+      var barcodePadding = 0;
+      if (options.displayValue && barcodeWidth < textWidth) {
+        if (options.textAlign == "center") {
+          barcodePadding = Math.floor((textWidth - barcodeWidth) / 2);
+        } else if (options.textAlign == "left") {
+          barcodePadding = 0;
+        } else if (options.textAlign == "right") {
+          barcodePadding = Math.floor(textWidth - barcodeWidth);
+        }
+      }
+      // 混入encodingArr[i]
+      encodingArr[i].barcodePadding = barcodePadding;
+      encodingArr[i].width = Math.ceil(Math.max(textWidth, barcodeWidth));
+      width += encodingArr[i].width;
+      if (encodingArr[i].options) {
+        if (encodingArr[i].options.height != undefined) {
+          encodingArr[i].height = encodingArr[i].options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
+        } else {
+          encodingArr[i].height = height = options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
+        }
+      } else {
+        encodingArr[i].height = height = options.height + (options.displayValue && (encodingArr[i].text ? encodingArr[i].text : '').length > 0 ? options.fontSize + options.textMargin : 0) + options.marginTop + options.marginBottom;
+      }
+    });
+    return { encodings: encodingArr, width: width, height: height };
   }
   // 修正Margin
   function fixMargin(options) {
-    console.log(options.margin);
     options.marginTop = options.marginTop == undefined ? options.margin : options.marginTop;
     options.marginBottom = options.marginBottom == undefined ? options.margin : options.marginBottom;
     options.marginRight = options.marginRight == undefined ? options.margin : options.marginRight;
     options.marginLeft = options.marginLeft == undefined ? options.margin : options.marginLeft;
-    console.log(options.marginTop == undefined);
-    console.log(options.marginTop);
   }
 })();var _default =
 
@@ -7254,10 +7342,10 @@ barcode;exports.default = _default;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js":
-/*!**************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/Barcode.js ***!
-  \**************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js":
+/*!**********************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/Barcode.js ***!
+  \**********************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7282,10 +7370,10 @@ exports.default = Barcode;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128.js":
-/*!**********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/CODE128.js ***!
-  \**********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128.js":
+/*!******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/CODE128.js ***!
+  \******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7298,11 +7386,11 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -7460,10 +7548,10 @@ exports.default = CODE128;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128A.js":
-/*!***********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/CODE128A.js ***!
-  \***********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128A.js":
+/*!*******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/CODE128A.js ***!
+  \*******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7476,11 +7564,11 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128.js");
+var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128.js");
 
 var _CODE3 = _interopRequireDefault(_CODE2);
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -7513,10 +7601,10 @@ exports.default = CODE128A;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128B.js":
-/*!***********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/CODE128B.js ***!
-  \***********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128B.js":
+/*!*******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/CODE128B.js ***!
+  \*******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7529,11 +7617,11 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128.js");
+var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128.js");
 
 var _CODE3 = _interopRequireDefault(_CODE2);
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -7566,10 +7654,10 @@ exports.default = CODE128B;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128C.js":
-/*!***********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/CODE128C.js ***!
-  \***********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128C.js":
+/*!*******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/CODE128C.js ***!
+  \*******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7582,11 +7670,11 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128.js");
+var _CODE2 = __webpack_require__(/*! ./CODE128.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128.js");
 
 var _CODE3 = _interopRequireDefault(_CODE2);
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -7619,10 +7707,10 @@ exports.default = CODE128C;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128_AUTO.js":
-/*!***************************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/CODE128_AUTO.js ***!
-  \***************************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128_AUTO.js":
+/*!***********************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/CODE128_AUTO.js ***!
+  \***********************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7633,11 +7721,11 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _CODE2 = __webpack_require__(/*! ./CODE128 */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128.js");
+var _CODE2 = __webpack_require__(/*! ./CODE128 */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128.js");
 
 var _CODE3 = _interopRequireDefault(_CODE2);
 
-var _auto = __webpack_require__(/*! ./auto */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\auto.js");
+var _auto = __webpack_require__(/*! ./auto */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\auto.js");
 
 var _auto2 = _interopRequireDefault(_auto);
 
@@ -7671,10 +7759,10 @@ exports.default = CODE128AUTO;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\auto.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/auto.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\auto.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/auto.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7685,7 +7773,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js");
 
 // Match Set functions
 var matchSetALength = function matchSetALength(string) {
@@ -7755,10 +7843,10 @@ exports.default = function (string) {
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\constants.js":
-/*!************************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/constants.js ***!
-  \************************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\constants.js":
+/*!********************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/constants.js ***!
+  \********************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7820,10 +7908,10 @@ var BARS = exports.BARS = [11011001100, 11001101100, 11001100110, 10010011000, 1
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\index.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE128/index.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\index.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE128/index.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7835,19 +7923,19 @@ Object.defineProperty(exports, "__esModule", {
 
 exports.CODE128C = exports.CODE128B = exports.CODE128A = exports.CODE128 = undefined;
 
-var _CODE128_AUTO = __webpack_require__(/*! ./CODE128_AUTO.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128_AUTO.js");
+var _CODE128_AUTO = __webpack_require__(/*! ./CODE128_AUTO.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128_AUTO.js");
 
 var _CODE128_AUTO2 = _interopRequireDefault(_CODE128_AUTO);
 
-var _CODE128A = __webpack_require__(/*! ./CODE128A.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128A.js");
+var _CODE128A = __webpack_require__(/*! ./CODE128A.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128A.js");
 
 var _CODE128A2 = _interopRequireDefault(_CODE128A);
 
-var _CODE128B = __webpack_require__(/*! ./CODE128B.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128B.js");
+var _CODE128B = __webpack_require__(/*! ./CODE128B.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128B.js");
 
 var _CODE128B2 = _interopRequireDefault(_CODE128B);
 
-var _CODE128C = __webpack_require__(/*! ./CODE128C.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\CODE128C.js");
+var _CODE128C = __webpack_require__(/*! ./CODE128C.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\CODE128C.js");
 
 var _CODE128C2 = _interopRequireDefault(_CODE128C);
 
@@ -7860,10 +7948,10 @@ exports.CODE128C = _CODE128C2.default;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE39\\index.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/CODE39/index.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE39\\index.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/CODE39/index.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7877,7 +7965,7 @@ exports.CODE39 = undefined;
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -7975,10 +8063,10 @@ exports.CODE39 = CODE39;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN.js":
-/*!******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/EAN.js ***!
-  \******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN.js":
+/*!**************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/EAN.js ***!
+  \**************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -7991,13 +8079,13 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js");
 
-var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js");
+var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js");
 
 var _encoder2 = _interopRequireDefault(_encoder);
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -8078,10 +8166,10 @@ exports.default = EAN;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN13.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/EAN13.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN13.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/EAN13.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8096,9 +8184,9 @@ var _createClass = function () {function defineProperties(target, props) {for (v
 
 var _get = function get(object, property, receiver) {if (object === null) object = Function.prototype;var desc = Object.getOwnPropertyDescriptor(object, property);if (desc === undefined) {var parent = Object.getPrototypeOf(object);if (parent === null) {return undefined;} else {return get(parent, property, receiver);}} else if ("value" in desc) {return desc.value;} else {var getter = desc.get;if (getter === undefined) {return undefined;}return getter.call(receiver);}};
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js");
 
-var _EAN2 = __webpack_require__(/*! ./EAN */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN.js");
+var _EAN2 = __webpack_require__(/*! ./EAN */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN.js");
 
 var _EAN3 = _interopRequireDefault(_EAN2);
 
@@ -8208,10 +8296,10 @@ exports.default = EAN13;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN2.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/EAN2.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN2.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/EAN2.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8224,13 +8312,13 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js");
 
-var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js");
+var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js");
 
 var _encoder2 = _interopRequireDefault(_encoder);
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -8277,10 +8365,10 @@ exports.default = EAN2;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN5.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/EAN5.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN5.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/EAN5.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8293,13 +8381,13 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js");
 
-var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js");
+var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js");
 
 var _encoder2 = _interopRequireDefault(_encoder);
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -8353,10 +8441,10 @@ exports.default = EAN5;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN8.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/EAN8.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN8.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/EAN8.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8371,7 +8459,7 @@ var _createClass = function () {function defineProperties(target, props) {for (v
 
 var _get = function get(object, property, receiver) {if (object === null) object = Function.prototype;var desc = Object.getOwnPropertyDescriptor(object, property);if (desc === undefined) {var parent = Object.getPrototypeOf(object);if (parent === null) {return undefined;} else {return get(parent, property, receiver);}} else if ("value" in desc) {return desc.value;} else {var getter = desc.get;if (getter === undefined) {return undefined;}return getter.call(receiver);}};
 
-var _EAN2 = __webpack_require__(/*! ./EAN */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN.js");
+var _EAN2 = __webpack_require__(/*! ./EAN */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN.js");
 
 var _EAN3 = _interopRequireDefault(_EAN2);
 
@@ -8445,10 +8533,10 @@ exports.default = EAN8;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\UPC.js":
-/*!******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/UPC.js ***!
-  \******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\UPC.js":
+/*!**************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/UPC.js ***!
+  \**************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8463,11 +8551,11 @@ var _createClass = function () {function defineProperties(target, props) {for (v
 
 exports.checksum = checksum;
 
-var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js");
+var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js");
 
 var _encoder2 = _interopRequireDefault(_encoder);
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -8621,10 +8709,10 @@ exports.default = UPC;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\UPCE.js":
-/*!*******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/UPCE.js ***!
-  \*******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\UPCE.js":
+/*!***************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/UPCE.js ***!
+  \***************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8637,15 +8725,15 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js");
+var _encoder = __webpack_require__(/*! ./encoder */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js");
 
 var _encoder2 = _interopRequireDefault(_encoder);
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
-var _UPC = __webpack_require__(/*! ./UPC.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\UPC.js");
+var _UPC = __webpack_require__(/*! ./UPC.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\UPC.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -8817,10 +8905,10 @@ exports.default = UPCE;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js":
-/*!************************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/constants.js ***!
-  \************************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js":
+/*!********************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/constants.js ***!
+  \********************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8858,10 +8946,10 @@ var EAN13_STRUCTURE = exports.EAN13_STRUCTURE = ['LLLLLL', 'LLGLGG', 'LLGGLG', '
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\encoder.js":
-/*!**********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/encoder.js ***!
-  \**********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\encoder.js":
+/*!******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/encoder.js ***!
+  \******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8872,7 +8960,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\constants.js");
 
 // Encode data string
 var encode = function encode(data, structure, separator) {
@@ -8896,10 +8984,10 @@ exports.default = encode;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\index.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/EAN_UPC/index.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\index.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/EAN_UPC/index.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8911,27 +8999,27 @@ Object.defineProperty(exports, "__esModule", {
 
 exports.UPCE = exports.UPC = exports.EAN2 = exports.EAN5 = exports.EAN8 = exports.EAN13 = undefined;
 
-var _EAN = __webpack_require__(/*! ./EAN13.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN13.js");
+var _EAN = __webpack_require__(/*! ./EAN13.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN13.js");
 
 var _EAN2 = _interopRequireDefault(_EAN);
 
-var _EAN3 = __webpack_require__(/*! ./EAN8.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN8.js");
+var _EAN3 = __webpack_require__(/*! ./EAN8.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN8.js");
 
 var _EAN4 = _interopRequireDefault(_EAN3);
 
-var _EAN5 = __webpack_require__(/*! ./EAN5.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN5.js");
+var _EAN5 = __webpack_require__(/*! ./EAN5.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN5.js");
 
 var _EAN6 = _interopRequireDefault(_EAN5);
 
-var _EAN7 = __webpack_require__(/*! ./EAN2.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\EAN2.js");
+var _EAN7 = __webpack_require__(/*! ./EAN2.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\EAN2.js");
 
 var _EAN8 = _interopRequireDefault(_EAN7);
 
-var _UPC = __webpack_require__(/*! ./UPC.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\UPC.js");
+var _UPC = __webpack_require__(/*! ./UPC.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\UPC.js");
 
 var _UPC2 = _interopRequireDefault(_UPC);
 
-var _UPCE = __webpack_require__(/*! ./UPCE.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\UPCE.js");
+var _UPCE = __webpack_require__(/*! ./UPCE.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\UPCE.js");
 
 var _UPCE2 = _interopRequireDefault(_UPCE);
 
@@ -8946,10 +9034,10 @@ exports.UPCE = _UPCE2.default;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\GenericBarcode\\index.js":
-/*!***************************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/GenericBarcode/index.js ***!
-  \***************************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\GenericBarcode\\index.js":
+/*!***********************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/GenericBarcode/index.js ***!
+  \***********************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -8963,7 +9051,7 @@ exports.GenericBarcode = undefined;
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -9012,10 +9100,10 @@ exports.GenericBarcode = GenericBarcode;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\ITF.js":
-/*!**************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/ITF/ITF.js ***!
-  \**************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\ITF.js":
+/*!**********************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/ITF/ITF.js ***!
+  \**********************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9028,9 +9116,9 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\constants.js");
+var _constants = __webpack_require__(/*! ./constants */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\constants.js");
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -9092,10 +9180,10 @@ exports.default = ITF;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\ITF14.js":
-/*!****************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/ITF/ITF14.js ***!
-  \****************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\ITF14.js":
+/*!************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/ITF/ITF14.js ***!
+  \************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9108,7 +9196,7 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _ITF2 = __webpack_require__(/*! ./ITF */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\ITF.js");
+var _ITF2 = __webpack_require__(/*! ./ITF */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\ITF.js");
 
 var _ITF3 = _interopRequireDefault(_ITF2);
 
@@ -9158,10 +9246,10 @@ exports.default = ITF14;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\constants.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/ITF/constants.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\constants.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/ITF/constants.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9178,10 +9266,10 @@ var BINARIES = exports.BINARIES = ['00110', '10001', '01001', '11000', '00101', 
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\index.js":
-/*!****************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/ITF/index.js ***!
-  \****************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\index.js":
+/*!************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/ITF/index.js ***!
+  \************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9193,11 +9281,11 @@ Object.defineProperty(exports, "__esModule", {
 
 exports.ITF14 = exports.ITF = undefined;
 
-var _ITF = __webpack_require__(/*! ./ITF */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\ITF.js");
+var _ITF = __webpack_require__(/*! ./ITF */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\ITF.js");
 
 var _ITF2 = _interopRequireDefault(_ITF);
 
-var _ITF3 = __webpack_require__(/*! ./ITF14 */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\ITF14.js");
+var _ITF3 = __webpack_require__(/*! ./ITF14 */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\ITF14.js");
 
 var _ITF4 = _interopRequireDefault(_ITF3);
 
@@ -9208,10 +9296,10 @@ exports.ITF14 = _ITF4.default;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js":
-/*!**************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/MSI.js ***!
-  \**************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js":
+/*!**********************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/MSI.js ***!
+  \**********************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9224,7 +9312,7 @@ Object.defineProperty(exports, "__esModule", {
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -9293,10 +9381,10 @@ exports.default = MSI;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI10.js":
-/*!****************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/MSI10.js ***!
-  \****************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI10.js":
+/*!************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/MSI10.js ***!
+  \************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9307,11 +9395,11 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js");
+var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js");
 
 var _MSI3 = _interopRequireDefault(_MSI2);
 
-var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\checksums.js");
+var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\checksums.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -9337,10 +9425,10 @@ exports.default = MSI10;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI1010.js":
-/*!******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/MSI1010.js ***!
-  \******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI1010.js":
+/*!**************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/MSI1010.js ***!
+  \**************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9351,11 +9439,11 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js");
+var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js");
 
 var _MSI3 = _interopRequireDefault(_MSI2);
 
-var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\checksums.js");
+var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\checksums.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -9383,10 +9471,10 @@ exports.default = MSI1010;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI11.js":
-/*!****************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/MSI11.js ***!
-  \****************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI11.js":
+/*!************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/MSI11.js ***!
+  \************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9397,11 +9485,11 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js");
+var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js");
 
 var _MSI3 = _interopRequireDefault(_MSI2);
 
-var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\checksums.js");
+var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\checksums.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -9427,10 +9515,10 @@ exports.default = MSI11;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI1110.js":
-/*!******************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/MSI1110.js ***!
-  \******************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI1110.js":
+/*!**************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/MSI1110.js ***!
+  \**************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9441,11 +9529,11 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js");
+var _MSI2 = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js");
 
 var _MSI3 = _interopRequireDefault(_MSI2);
 
-var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\checksums.js");
+var _checksums = __webpack_require__(/*! ./checksums.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\checksums.js");
 
 function _interopRequireDefault(obj) {return obj && obj.__esModule ? obj : { default: obj };}
 
@@ -9473,10 +9561,10 @@ exports.default = MSI1110;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\checksums.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/checksums.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\checksums.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/checksums.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9513,10 +9601,10 @@ function mod11(number) {
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\index.js":
-/*!****************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/MSI/index.js ***!
-  \****************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\index.js":
+/*!************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/MSI/index.js ***!
+  \************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9528,23 +9616,23 @@ Object.defineProperty(exports, "__esModule", {
 
 exports.MSI1110 = exports.MSI1010 = exports.MSI11 = exports.MSI10 = exports.MSI = undefined;
 
-var _MSI = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI.js");
+var _MSI = __webpack_require__(/*! ./MSI.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI.js");
 
 var _MSI2 = _interopRequireDefault(_MSI);
 
-var _MSI3 = __webpack_require__(/*! ./MSI10.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI10.js");
+var _MSI3 = __webpack_require__(/*! ./MSI10.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI10.js");
 
 var _MSI4 = _interopRequireDefault(_MSI3);
 
-var _MSI5 = __webpack_require__(/*! ./MSI11.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI11.js");
+var _MSI5 = __webpack_require__(/*! ./MSI11.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI11.js");
 
 var _MSI6 = _interopRequireDefault(_MSI5);
 
-var _MSI7 = __webpack_require__(/*! ./MSI1010.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI1010.js");
+var _MSI7 = __webpack_require__(/*! ./MSI1010.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI1010.js");
 
 var _MSI8 = _interopRequireDefault(_MSI7);
 
-var _MSI9 = __webpack_require__(/*! ./MSI1110.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\MSI1110.js");
+var _MSI9 = __webpack_require__(/*! ./MSI1110.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\MSI1110.js");
 
 var _MSI10 = _interopRequireDefault(_MSI9);
 
@@ -9558,10 +9646,10 @@ exports.MSI1110 = _MSI10.default;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\codabar\\index.js":
-/*!********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/codabar/index.js ***!
-  \********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\codabar\\index.js":
+/*!****************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/codabar/index.js ***!
+  \****************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9575,7 +9663,7 @@ exports.codabar = undefined;
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 
@@ -9661,10 +9749,10 @@ exports.codabar = codabar;
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\index.js":
-/*!************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/index.js ***!
-  \************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\index.js":
+/*!********************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/index.js ***!
+  \********************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9675,39 +9763,40 @@ Object.defineProperty(exports, "__esModule", {
   value: true });
 
 
-var _CODE = __webpack_require__(/*! ./CODE39/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE39\\index.js");
+var _CODE = __webpack_require__(/*! ./CODE39/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE39\\index.js");
 
-var _CODE2 = __webpack_require__(/*! ./CODE128/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\CODE128\\index.js");
+var _CODE2 = __webpack_require__(/*! ./CODE128/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\CODE128\\index.js");
 
-var _EAN_UPC = __webpack_require__(/*! ./EAN_UPC/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\EAN_UPC\\index.js");
+var _EAN_UPC = __webpack_require__(/*! ./EAN_UPC/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\EAN_UPC\\index.js");
 
-var _ITF = __webpack_require__(/*! ./ITF/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\ITF\\index.js");
+var _ITF = __webpack_require__(/*! ./ITF/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\ITF\\index.js");
 
-var _MSI = __webpack_require__(/*! ./MSI/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\MSI\\index.js");
+var _MSI = __webpack_require__(/*! ./MSI/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\MSI\\index.js");
 
-var _pharmacode = __webpack_require__(/*! ./pharmacode/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\pharmacode\\index.js");
+var _pharmacode = __webpack_require__(/*! ./pharmacode/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\pharmacode\\index.js");
 
-var _codabar = __webpack_require__(/*! ./codabar */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\codabar\\index.js");
+var _codabar = __webpack_require__(/*! ./codabar */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\codabar\\index.js");
 
-var _GenericBarcode = __webpack_require__(/*! ./GenericBarcode/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\GenericBarcode\\index.js");
+var _GenericBarcode = __webpack_require__(/*! ./GenericBarcode/ */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\GenericBarcode\\index.js");
 
 exports.default = {
   CODE39: _CODE.CODE39,
   CODE128: _CODE2.CODE128, CODE128A: _CODE2.CODE128A, CODE128B: _CODE2.CODE128B, CODE128C: _CODE2.CODE128C,
-  EAN13: _EAN_UPC.EAN13, EAN8: _EAN_UPC.EAN8, EAN5: _EAN_UPC.EAN5, EAN2: _EAN_UPC.EAN2, UPC: _EAN_UPC.UPC, UPCE: _EAN_UPC.UPCE,
+  EAN13: _EAN_UPC.EAN13, EAN8: _EAN_UPC.EAN8, EAN5: _EAN_UPC.EAN5, EAN2: _EAN_UPC.EAN2,
+  UPC: _EAN_UPC.UPC, UPCE: _EAN_UPC.UPCE,
   ITF14: _ITF.ITF14,
   ITF: _ITF.ITF,
   MSI: _MSI.MSI, MSI10: _MSI.MSI10, MSI11: _MSI.MSI11, MSI1010: _MSI.MSI1010, MSI1110: _MSI.MSI1110,
-  pharmacode: _pharmacode.pharmacode,
-  codabar: _codabar.codabar,
-  GenericBarcode: _GenericBarcode.GenericBarcode };
+  PHARMACODE: _pharmacode.pharmacode,
+  CODABAR: _codabar.codabar,
+  GENERICBARCODE: _GenericBarcode.GenericBarcode };
 
 /***/ }),
 
-/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\pharmacode\\index.js":
-/*!***********************************************************************************************!*\
-  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/bin/barcodes/pharmacode/index.js ***!
-  \***********************************************************************************************/
+/***/ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\pharmacode\\index.js":
+/*!*******************************************************************************************!*\
+  !*** E:/Xz/work/uni-app/Test/barcode/components/tki-barcode/barcodes/pharmacode/index.js ***!
+  \*******************************************************************************************/
 /*! no static exports found */
 /***/ (function(module, exports, __webpack_require__) {
 
@@ -9721,7 +9810,7 @@ exports.pharmacode = undefined;
 
 var _createClass = function () {function defineProperties(target, props) {for (var i = 0; i < props.length; i++) {var descriptor = props[i];descriptor.enumerable = descriptor.enumerable || false;descriptor.configurable = true;if ("value" in descriptor) descriptor.writable = true;Object.defineProperty(target, descriptor.key, descriptor);}}return function (Constructor, protoProps, staticProps) {if (protoProps) defineProperties(Constructor.prototype, protoProps);if (staticProps) defineProperties(Constructor, staticProps);return Constructor;};}();
 
-var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\bin\\barcodes\\Barcode.js");
+var _Barcode2 = __webpack_require__(/*! ../Barcode.js */ "E:\\Xz\\work\\uni-app\\Test\\barcode\\components\\tki-barcode\\barcodes\\Barcode.js");
 
 var _Barcode3 = _interopRequireDefault(_Barcode2);
 

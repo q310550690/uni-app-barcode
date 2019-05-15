@@ -18,9 +18,10 @@
 | |UPC (A)| | |MSI1110| | |
 | |UPC (E)| | | | | |
 
-微信APP能够扫码识别的条形码类型：code128\code39\ena13\ean8\upc\itf14
+微信APP能够扫码识别的条形码类型：code128\code39\ean13\ean8\upc\itf14
 
 **注意：使用时请遵循条码类型规范，否则无法生成或报错。条形码只支持英文、数字、和一些常规符号，其它的会报错，非要生成中文或其它符号请自行转换为unicode码**
+### 重要的事情说3遍：请使用1.9.6或更新版！请使用1.9.6或更新版！请使用1.9.6或更新版！
 
 ## 开始使用
 ```
@@ -47,34 +48,45 @@ export default {
     :val="val"
     :size="size"
     :unit="unit"
-    :background="background"
-    :foreground="foreground"
-    :pdground="pdground"
-    :icon="icon"
-    :iconSize="iconsize"
-    :lv="lv" 
+    :opations="opations"
     :onval="onval"
     :loadMake="loadMake"
-    @result="qrR" />
+    @result="barresult" />
 </view>
 ```
 ### 属性
 
 |属性名|类型|默认值|可选值|说明|
 |:-|:-:|:--:|:--:|-:|
-|size|Number|200| |生成的二维码大小|
-|unit|String|upx|px|大小单位尺寸|
-|show|Boolean|true| |默认使用组件中的image标签显示二维码|
-|val|String|二维码| |要生成的内容|
-|background|String|#000000| |二维码背景色|
-|foreground|String|#ffffff| |二维码前景色|
-|pdground|String|#ffffff| |二维码角标色|
-|icon|String| | |二维码图标URL（必须是本地图片，网络图需要先下载至本地）|
-|iconSize|Number|40<br/>注意此大小不会跟随二维码size 动态变化，设置时需注意大小，不要太大，以免无法识别| |二维码图标大小|
-|lv|Number|3（一般不用设置）| |容错级别|
-|onval|Boolean|false| |监听val值变化自动重新生成二维码|
-|loadMake|Boolean|false| |组件初始化完成后自动生成二维码，val需要有值|
-
+|cid|String|tki-barcode-canvas| |canvasId，页面存在多个条形码组件时需设置不同的ID|
+|size|Number|200| |生成的条形码大小|
+|unit|String|upx|px|单位|
+|show|Boolean|true| |默认使用组件中的image标签显示条形码|
+|format|String|code128| code128\code39\ean13\ean8\upc\itf14|条形码类型|
+|val|String|1234567890128| |要生成的内容|
+|opations|JSON|见下表| |条形码参数|
+|onval|Boolean|false| |监听val值变化自动重新生成条形码|
+|loadMake|Boolean|true| |组件初始化完成后自动生成条形码，val需要有值|
+### opations
+|属性名|类型|默认值|可选值|说明|
+|:-|:-:|:--:|:--:|-:|
+|format|String|code128| |要使用的条形码类型。</br>提示：微信APP扫码支持的条码类型有 code128\code39\ean13\ean8\upc\itf14|
+|width|Number|4| |设置条之间的宽度|
+|height|Number|200| |设置条的高度|
+|displayValue|Boolean|true| |是否在条形码下方显示文字|
+|text|String|1234567890128| |条码内容（会覆盖val属性）|
+|textAlign|String|center|left\right |设置文本的水平对齐方式|
+|textPosition|String|bottom|top |设置文本的垂直位置|
+|textMargin|Number|5|top |设置文本的垂直位置|
+|fontSize|Number|24| |设置文本的大小|
+|fontColor|String(color)|#000000| |设置文本的颜色|
+|lineColor|String(color)|#000000| |设置条形码的颜色|
+|background|String(color)|#FFFFFF| |设置条形码的背景色|
+|margin|Number|0| |设置条形码周围的空白边距|
+|marginTop|Number|undefined| |设置条形码周围的上边距|
+|marginBottom|Number|undefined| |设置条形码周围的下边距|
+|marginLeft|Number|undefined| |设置条形码周围的左边距|
+|marginRight|Number|undefined| |设置条形码周围的右边距|
 ### 方法
 |方法名|参数|默认值|说明|
 |:-|:-:|:--:|-:|
@@ -85,12 +97,8 @@ export default {
 ### 事件
 |事件名|返回值|说明|
 |:-|:-:|-:|
-|result|生成的图片base64或图片临时地址|返回二维码路径 注：_clearCode()后返回空|
+|result|生成的图片base64或图片临时地址|返回条形码路径 注：_clearCode()后返回空|
 
-
-
-### 问题
-暂无问题
 
 ### 感谢
 
