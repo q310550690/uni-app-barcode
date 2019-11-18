@@ -1,7 +1,11 @@
 <template xlang="wxml" minapp="mpvue">
 	<view class="tki-barcode">
-		<!-- <canvas class="tki-barcode-canvas" canvas-id="tki-barcode-canvas" :width="canvasWidth" :height="canvasHeight" /> -->
+		<!-- #ifndef MP-ALIPAY -->
 		<canvas class="tki-barcode-canvas" :canvas-id="cid" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" />
+		<!-- #endif -->
+		<!-- #ifdef MP-ALIPAY -->
+		<canvas :id="cid" :width="canvasWidth" :height="canvasHeight" class="tki-barcode-canvas" />
+		<!-- #endif -->
 		<image v-show="show" :src="result" :style="{width:canvasWidth+'px',height:canvasHeight+'px'}" />
 	</view>
 </template>
@@ -156,16 +160,6 @@ export default {
 		}
 	},
 	watch: {
-		size(n, o) {
-			if (n != o && !this._empty(n)) {
-				this.cSize = n
-				if (!this._empty(this.val)) {
-					setTimeout(() => {
-						this._makeCode()
-					}, 100);
-				}
-			}
-		},
 		val(n, o) {
 			if (this.onval) {
 				if (n != o && !this._empty(n)) {
