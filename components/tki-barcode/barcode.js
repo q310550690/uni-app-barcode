@@ -120,8 +120,8 @@ let barcode = {};
                     uni.canvasToTempFilePath({
                         width: encoding.width,
                         height: encoding.height,
-                        // destWidth: encoding.width,
-                        // destHeight: encoding.height,
+                        destWidth: encoding.width,
+                        destHeight: encoding.height,
                         canvasId: globaCtxid,
                         fileType: 'png',
                         success: function (res) {
