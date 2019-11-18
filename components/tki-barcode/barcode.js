@@ -25,7 +25,7 @@ let barcode = {};
         // 绘制canvas
         setTimeout(() => {
             drawCanvas.render(newOptions, fixencodings)
-        }, 10);
+        }, 50);
         // 绘制canvas
         let drawCanvas = {
             render(options, encoding) {

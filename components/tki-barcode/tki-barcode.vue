@@ -9,6 +9,25 @@
 <script>
 // const barcode = require('./barcode.js');
 import barCode from "./barcode.js"
+const opations = {
+	// format: "CODE128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
+	width: 4,//设置条之间的宽度
+	height: 120,//高度
+	displayValue: true,//是否在条形码下方显示文字
+	// text: "1234567890",//覆盖显示的文本
+	textAlign: "center",//设置文本的水平对齐方式
+	textPosition: "bottom",//设置文本的垂直位置
+	textMargin: 0,//设置条形码和文本之间的间距
+	fontSize: 24,//设置文本的大小
+	fontColor: "#000000",//设置文本的颜色
+	lineColor: "#000000",//设置条形码的颜色
+	background: "#FFFFFF",//设置条形码的背景色
+	margin: 0,//设置条形码周围的空白边距
+	marginTop: undefined,//设置条形码周围的上边距
+	marginBottom: undefined,//设置条形码周围的下边距
+	marginLeft: undefined,//设置条形码周围的左边距
+	marginRight: undefined,//设置条形码周围的右边距
+}
 export default {
 	name: "tkiBarcode",
 	props: {
@@ -52,25 +71,7 @@ export default {
 			result: '',
 			canvasWidth: 0,
 			canvasHeight: 0,
-			defaultOpations: {
-				// format: "CODE128",//选择要使用的条形码类型 微信支持的条码类型有 code128\code39\ena13\ean8\upc\itf14\
-				width: 4,//设置条之间的宽度
-				height: 120,//高度
-				displayValue: true,//是否在条形码下方显示文字
-				// text: "1234567890",//覆盖显示的文本
-				textAlign: "center",//设置文本的水平对齐方式
-				textPosition: "bottom",//设置文本的垂直位置
-				textMargin: 0,//设置条形码和文本之间的间距
-				fontSize: 24,//设置文本的大小
-				fontColor: "#000000",//设置文本的颜色
-				lineColor: "#000000",//设置条形码的颜色
-				background: "#FFFFFF",//设置条形码的背景色
-				margin: 0,//设置条形码周围的空白边距
-				marginTop: undefined,//设置条形码周围的上边距
-				marginBottom: undefined,//设置条形码周围的下边距
-				marginLeft: undefined,//设置条形码周围的左边距
-				marginRight: undefined,//设置条形码周围的右边距
-			}
+			defaultOpations: Object.assign({}, opations)
 		}
 	},
 	onUnload: function () {
@@ -79,7 +80,7 @@ export default {
 		_makeCode() {
 			let that = this
 			// 合并参数
-			Object.assign(this.defaultOpations,this.opations)
+			Object.assign(this.defaultOpations, this.opations)
 			if (that.unit == "upx") {
 				if (that.defaultOpations.width) {
 					that.defaultOpations.width = uni.upx2px(that.defaultOpations.width)
@@ -97,13 +98,17 @@ export default {
 			if (that._empty(that.defaultOpations.format)) {
 				that.defaultOpations.format = that.format
 			}
+			// console.log(JSON.stringify(that.defaultOpations))
 			new barCode(that, that.cid, that.defaultOpations,
 				function (res) { // 生成条形码款高回调
 					that.canvasWidth = res.width
 					that.canvasHeight = res.height
 				},
 				function (res) { // 生成条形码的回调
+					// 返回值
 					that._result(res)
+					// 重置默认参数
+					that.defaultOpations = opations
 				},
 			);
 		},
@@ -151,7 +156,7 @@ export default {
 		}
 	},
 	watch: {
-		size: function (n, o) {
+		size(n, o) {
 			if (n != o && !this._empty(n)) {
 				this.cSize = n
 				if (!this._empty(this.val)) {
@@ -161,7 +166,7 @@ export default {
 				}
 			}
 		},
-		val: function (n, o) {
+		val(n, o) {
 			if (this.onval) {
 				if (n != o && !this._empty(n)) {
 					setTimeout(() => {
@@ -169,6 +174,18 @@ export default {
 					}, 0);
 				}
 			}
+		},
+		opations: {
+			handler(n,o){
+				if (this.onval) {
+					if (!this._empty(n)) {
+						setTimeout(() => {
+							this._makeCode()
+						}, 0);
+					}
+				}
+			},
+			deep: true
 		}
 	},
 	mounted: function () {
