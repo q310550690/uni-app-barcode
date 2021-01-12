@@ -112,7 +112,7 @@ export default {
 					// 返回值
 					that._result(res)
 					// 重置默认参数
-					that.defaultOpations = opations
+					that.defaultOpations = Object.assign({}, opations)
 				},
 			);
 		},
